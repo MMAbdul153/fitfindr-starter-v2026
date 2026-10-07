@@ -39,67 +39,52 @@
 
 ## What This Does
 
-<!-- Three or four sentences: what a user asks for, and what they get back. -->
-
-
+FitFindr is an AI-powered personal shopping and styling assistant. A user provides a natural language query describing a desired thrift piece (including optional budget and size constraints), and the system searches available second-hand listings in real-time. If matching items are found, the agent pairs the selected item with complementary pieces from the user's existing wardrobe and generates a styled social-media caption (Fit Card). If no listings match, the agent halts early with a helpful refusal message before making downstream model calls.
 
 ---
 
 ## Tool Inventory
 
-<!-- Four lines per tool. This is worth 2 points and it's the single most
-     common place students lose them.
-
-     "Returns a list" earns NOTHING. The description has to say what is IN
-     the list.
-
-     The empty case isn't optional either — it's the thing your loop branches
-     on, and if you don't decide it here you'll discover it as a crash in
-     Milestone 5. -->
-
 ### `search_listings`
 
-- **What it does:**
-- **Inputs:** <!-- name and type each: `max_price` (float), not "a price" -->
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Searches the listings dataset for items matching description keywords, optional size, and optional maximum price limit.
+- **Inputs:** `description` (str), `size` (str | None), `max_price` (float | None)
+- **Returns:** A list of dicts, each with keys `id` (str), `title` (str), `price` (float), `size` (str), `platform` (str), `description` (str), `category` (str), `style_tags` (list[str]), `condition` (str), `colors` (list[str]), and `brand` (str | None).
+- **When it has nothing:** Returns an empty list `[]`.
 
 ### `suggest_outfit`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Calls the model to select complementary pieces from the user's wardrobe to pair with the newly selected listing.
+- **Inputs:** `new_item` (dict with item attributes), `wardrobe` (dict representing user wardrobe categories from `wardrobe_schema.json`)
+- **Returns:** A styled text recommendation string (or dict) containing the selected complementary wardrobe items and an explanation of why the pairing works.
+- **When it has nothing:** Returns an empty fallback string `""` (or `{}`) if `new_item` is empty or invalid.
 
 ### `create_fit_card`
 
-- **What it does:**
-- **Inputs:**
-- **Returns:**
-- **When it has nothing:**
+- **What it does:** Calls the model to generate a concise, styled social caption highlighting the paired outfit with relevant hashtags.
+- **Inputs:** `outfit` (dict | str representing the styled outfit), `new_item` (dict of the selected listing)
+- **Returns:** A string containing the social-media-ready caption and hashtags.
+- **When it has nothing:** Returns an empty string `""` if input data is missing.
 
 ---
 
 ## Planning Loop
 
-<!-- Your branch rule, stated as a rule — the condition AND both paths — plus
-     the file and function that holds it.
-
-     Like this:
-       "If search_listings returns an empty list, put a message in the session
-        and stop. Otherwise take the first result and go to suggest_outfit."
-        — agent.py::run_agent
-
-     The grader checks your code against what you claim here, so the file and
-     function have to be real. -->
-
-**Branch rule:**
+**Branch rule:** If `search_listings` returns an empty list, put an informative refusal message in `session["error"]` explaining what criteria failed and stop. Otherwise, assign the first result (`session["search_results"][0]`) to `session["selected_item"]` and proceed to `suggest_outfit` followed by `create_fit_card`.
 
 **Where it lives:** `agent.py::run_agent`
 
-**How the query is parsed:** <!-- regex, string splitting, or asking the model — say which -->
+**How the query is parsed:** Regex pattern matching in `agent.py::parse_query_params` to extract price thresholds (e.g. `under $30`) and size tags (e.g. `size M`), combined with string splitting/cleaning for description keywords.
 
-**What moves through the session:** <!-- which fields, in what order -->
+**What moves through the session:** 
+1. `session["query"]` (input string)
+2. `session["parsed"]` (dict with `description`, `size`, `max_price`)
+3. `session["search_results"]` (list of matched listing dicts from `search_listings`)
+4. `session["selected_item"]` (chosen listing dict)
+5. `session["wardrobe"]` (user wardrobe dict)
+6. `session["outfit_suggestion"]` (output from `suggest_outfit`)
+7. `session["fit_card"]` (final caption string from `create_fit_card`)
+8. `session["error"]` (refusal message string if stopped early)
 
 ---
 
@@ -220,8 +205,6 @@ that produced it:
 
 **Diagnoses**
 
-
-
 ---
 
 ## Loop Trace
@@ -253,8 +236,6 @@ behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
 
-
-
 ---
 
 ## The Improvement
@@ -283,8 +264,6 @@ full. -->
 <!-- If it made things worse, say that. Honestly reported, that earns full
      credit and is more interesting than one that worked. -->
 
-
-
 ---
 
 ## What's Still Broken
@@ -292,8 +271,6 @@ full. -->
 <!-- For each criterion still missed: what you'd do, and why you stopped where
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
-
-
 
 <!-- ═════════════════════════════════════════════════════════════════════
 
@@ -309,21 +286,6 @@ full. -->
        [ ] At least four new commits
        [ ] Repository URL submitted — WRITE IT DOWN, you submit the same one
            next unit
-
-     SUBMISSION CHECKLIST — unit 4
-
-       [ ] mcp_server.py exists with one tool registered
-           (or a written record of exactly where the rewire broke)
-       [ ] Run Log — Before, five criteria, five tries each
-       [ ] Real output pasted underneath, naming file and function
-       [ ] A verdict on every criterion
-       [ ] A diagnosis for every miss, naming a place AND a mechanism
-       [ ] Loop Trace, with the MCP call visible in it
-       [ ] All three failure modes triggered and handled
-       [ ] One improvement, with Run Log — After in the same format
-       [ ] What's Still Broken
-       [ ] At least four new commits
-       [ ] The SAME repository URL as last unit
 
      Do not delete and recreate this repository. Your commit history is what
      shows your criteria existed before your results did.
