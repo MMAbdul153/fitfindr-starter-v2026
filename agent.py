@@ -13,13 +13,56 @@ Build and test your three tools in `tools.py` first. Then come here.
     python agent.py          runs both example paths below
 """
 
+import re
+from typing import Optional, Tuple
 import config
 import trace
 from tools import search_listings, suggest_outfit, create_fit_card
 from generate import ModelUnavailable
 
 
+# ── query parser ─────────────────────────────────────────────────────────────
+
+
+def parse_query_params(query: str) -> Tuple[str, Optional[str], Optional[float]]:
+    """
+    Parses the user query into description keywords, optional size, and max price.
+    Examples:
+      - "vintage graphic tee under $30, size M" -> ("vintage graphic tee", "M", 30.0)
+      - "leather trench coat under $5" -> ("leather trench coat", None, 5.0)
+    """
+    # 1. Extract maximum price (matches e.g. "under $30", "under 30", "$30", "< $50")
+    max_price = None
+    price_match = re.search(r'(?:under|<|\$)\s*(\d+(?:\.\d+)?)', query, re.IGNORECASE)
+    if price_match:
+        try:
+            max_price = float(price_match.group(1))
+        except (ValueError, TypeError):
+            max_price = None
+
+    # 2. Extract size (matches e.g. "size M", "size 29", "size Small", "size XXS")
+    size = None
+    size_match = re.search(r'\bsize\s+([a-zA-Z0-9/]+)\b', query, re.IGNORECASE)
+    if size_match:
+        size = size_match.group(1).upper()
+
+    # 3. Clean up the query to extract description keywords
+    cleaned = query
+    if price_match:
+        cleaned = cleaned.replace(price_match.group(0), "")
+    if size_match:
+        cleaned = cleaned.replace(size_match.group(0), "")
+
+    # Strip conversational filler words and punctuation
+    for filler in [",", "looking for", "find me", "a", "an", "the", "under", "with"]:
+        cleaned = re.sub(rf'\b{re.escape(filler)}\b', '', cleaned, flags=re.IGNORECASE)
+
+    description = " ".join(cleaned.replace(",", " ").split())
+    return description, size, max_price
+
+
 # ── session state ─────────────────────────────────────────────────────────────
+
 
 def new_session(query: str, wardrobe: dict) -> dict:
     """
@@ -27,13 +70,6 @@ def new_session(query: str, wardrobe: dict) -> dict:
 
     The session is the single source of truth for a run. Every tool result goes
     in here, and the next tool reads it back out.
-
-    You could pass values straight from one call to the next. It would work,
-    and you would not be able to test it — you can't print a variable you have
-    already overwritten. Going through the session is what makes the state
-    visible, and unit 4 has you write a criterion about exactly that.
-
-    Add fields if you need them.
     """
     return {
         "query": query,              # what the user typed
@@ -49,6 +85,7 @@ def new_session(query: str, wardrobe: dict) -> dict:
 
 # ── planning loop ─────────────────────────────────────────────────────────────
 
+
 def run_agent(query: str, wardrobe: dict) -> dict:
     """
     Run the loop once and return the finished session.
@@ -60,59 +97,76 @@ def run_agent(query: str, wardrobe: dict) -> dict:
                   get_empty_wardrobe() from utils/data_loader.py.
 
     Returns:
-        The session dict. **Check session["error"] first** — if it isn't None,
+        The session dict. Check session["error"] first — if it isn't None,
         the run ended early and the later fields will still be None.
-
-    ─────────────────────────────────────────────────────────────────────────
-    TODO — build this, following the branch rule you wrote in Milestone 2.
-
-      1. Start a session with new_session().
-
-      2. Count the times round the loop, and call trace.check_iterations(count)
-         on each one before you go again. It raises when the count passes
-         MAX_ITERATIONS in config.py — see trace.py.
-
-      3. Parse the query into a description, a size, and a max_price. Regex,
-         string splitting, or asking the model are all fine — say which you
-         chose in your README. Put the result in session["parsed"].
-
-      4. Call search_listings() with what you parsed.
-         Put the results in session["search_results"].
-
-         ⚠️ THIS IS THE BRANCH. If nothing came back:
-              - put a message in session["error"] saying what the user could
-                change — "No results" is not that message
-              - return the session
-              - do NOT call suggest_outfit with nothing
-
-      5. Choose an item — the first result is fine. Put it in
-         session["selected_item"].
-
-      6. Call suggest_outfit() with the selected item and the wardrobe.
-         Put the result in session["outfit_suggestion"].
-
-      7. Call create_fit_card() with the outfit and the item.
-         Put the result in session["fit_card"].
-
-      8. Return the session.
-
-    ─────────────────────────────────────────────────────────────────────────
-    IN UNIT 4 you come back and add two things:
-
-      • Trace calls. One per step. `trace.step("search_listings", inputs=...,
-        returned=...)` — see trace.py. Your README needs the output.
-
-      • A handler for ModelUnavailable, so a bad key produces a message rather
-        than a stack trace. The import is already at the top of this file.
     """
+    # 1. Start session
     session = new_session(query, wardrobe)
 
-    # TODO: delete these two lines and build the loop.
-    session["error"] = "The planning loop isn't built yet — see the TODO in agent.py."
+    # 2. Check iteration bounds
+    iteration_count = 1
+    if hasattr(trace, "check_iterations"):
+        trace.check_iterations(iteration_count)
+
+    # 3. Step 1: Parse query into description, size, and max_price
+    desc, size, max_price = parse_query_params(query)
+    session["parsed"] = {
+        "description": desc,
+        "size": size,
+        "max_price": max_price,
+    }
+
+    # 4. Step 2: Call Tool 1 (search_listings)
+    results = search_listings(description=desc, size=size, max_price=max_price)
+    session["search_results"] = results
+
+    # ⚠️ THIS IS THE BRANCH: If nothing came back, halt execution immediately
+    if not results:
+        details = []
+        if desc:
+            details.append(f"keywords '{desc}'")
+        if size:
+            details.append(f"size '{size}'")
+        if max_price is not None:
+            details.append(f"price under ${max_price:.2f}")
+
+        criteria_str = ", ".join(details) if details else f"'{query}'"
+        session["error"] = (
+            f"No matching listings found matching {criteria_str}. "
+            "Try increasing your budget, removing size filters, or broadening your keywords."
+        )
+        return session
+
+    # 5. Step 3: Happy path — choose the first result
+    session["selected_item"] = results[0]
+
+    # 6. Step 4: Call Tool 2 (suggest_outfit)
+    try:
+        outfit = suggest_outfit(
+            new_item=session["selected_item"],
+            wardrobe=session["wardrobe"]
+        )
+        session["outfit_suggestion"] = outfit
+    except ModelUnavailable as e:
+        session["error"] = f"Model service currently unavailable: {e}"
+        return session
+
+    # 7. Step 5: Call Tool 3 (create_fit_card)
+    try:
+        fit_card = create_fit_card(
+            outfit=session["outfit_suggestion"],
+            new_item=session["selected_item"]
+        )
+        session["fit_card"] = fit_card
+    except ModelUnavailable as e:
+        session["error"] = f"Model service currently unavailable: {e}"
+        return session
+
     return session
 
 
 # ── running it directly ───────────────────────────────────────────────────────
+
 
 def _show(session: dict) -> None:
     if session["error"]:
