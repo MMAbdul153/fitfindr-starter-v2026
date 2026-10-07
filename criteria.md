@@ -25,9 +25,7 @@ Given a query that matches at least one listing, the agent completes all three
 tool calls and returns a fit card — in at least 4 of 5 tries.
 
 **Why this target:**
-<!-- Why 4 of 5 and not 5 of 5? Something about your search, probably —
-     "my search is a plain keyword match and some phrasings will miss" is a
-     real answer. -->
+My search uses keyword matching and regex parameter extraction, which can occasionally miss phrasing variations, and downstream LLM generation could occasionally fail on model timeouts or malformed JSON responses. 4 of 5 allows for realistic natural language variance while requiring high overall pipeline reliability.
 
 ---
 
@@ -37,66 +35,34 @@ Given a query that matches no listings, the agent stops before calling
 `suggest_outfit` and returns a message naming what to change — 5 of 5 tries.
 
 **Why this target:**
-<!-- Why is 5 of 5 reasonable here when criterion 1 isn't? What's different
-     about this path? -->
+Stopping on an empty list is deterministic Python branching logic in the planning loop (`if not session["search_results"]`), not a probabilistic LLM decision. Since no model calls are involved in making this branch decision, it should never fail across 5 tries.
 
 ---
 
-## 3. Something about state
+## 3. State integrity across tool boundaries
 
-<!-- YOU WRITE THIS ONE.
-
-     How would you know that the item your search found is the same item the
-     next tool received? Name something countable or observable.
-
-     This is the criterion people find hardest, because state failure doesn't
-     look like state failure — it looks like a tool problem. Something that
-     compares session["selected_item"] against what actually reached
-     suggest_outfit is the shape you're after. -->
-
-
+When `search_listings` returns matching items, the selected listing's `id`, `title`, `price`, and `platform` in `session["selected_item"]` match the exact values received by `suggest_outfit` and `create_fit_card` in 5 of 5 tries.
 
 **Why this target:**
-
-
+Passing data across tools happens entirely through dictionary updates in `session`. Because Python dictionary reads and writes are deterministic, there should be zero data corruption, dropped keys, or type mutations across tool boundaries in any run.
 
 ---
 
-## 4. Something about the fit card
+## 4. Grounded and distinctive fit card captions
 
-<!-- YOU WRITE THIS ONE.
-
-     The fit card calls a model, so the same input can produce different words
-     each time. That's not a bug — it's the nature of the tool. So what would
-     make it acceptable?
-
-     Think about what you'd actually be unhappy to see. A caption that never
-     mentions the price? Two different items producing the same opening
-     sentence? A card longer than a caption anyone would post? Any of those can
-     be turned into a number. -->
-
-
+In at least 4 of 5 successful runs, the generated fit card caption explicitly includes the selected item's price and references at least one named wardrobe item from the user's closet.
 
 **Why this target:**
-
-
+`create_fit_card` calls an LLM, so exact phrasing will vary. However, grounding rules in the prompt should consistently force the model to cite concrete facts (price and paired closet pieces) rather than generic fluff in at least 4 of 5 generations.
 
 ---
 
-## 5. Your choice
+## 5. Strict price ceiling adherence
 
-<!-- YOU WRITE THIS ONE TOO.
-
-     Pick something you actually care about getting right. Speed, the empty
-     wardrobe path, what happens when the model can't be reached, whether the
-     search respects a price ceiling — anything, as long as it names a number
-     or an observable outcome. -->
-
-
+When the user query specifies a maximum price (e.g., 'under $30'), the selected item in `session["selected_item"]` has a `price` less than or equal to that ceiling in 5 of 5 matching runs.
 
 **Why this target:**
-
-
+Price filtering is executed in Python within `search_listings` via `float(item["price"]) <= max_price`. Because numeric comparison in code is exact and deterministic, the agent should never select or style an item that violates the user's stated budget constraint.
 
 ---
 
