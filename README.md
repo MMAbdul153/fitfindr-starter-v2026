@@ -98,8 +98,23 @@ FitFindr is an AI-powered personal shopping and styling assistant. A user provid
 **One full query**
 
 ```
-$ python app.py ask '...'
+$ python app.py ask 'vintage graphic tee under $30'
+=== Searching Listings ===
+Query: 'vintage graphic tee', Max Price: $30.0
+Found 6 matching items.
+Selected item: Graphic Tee — 2003 Tour Bootleg Style ($24.0 on depop)
 
+=== Generating Outfit Suggestion ===
+Selected wardrobe pieces:
+* White ribbed tank top (layering)
+* Vintage black denim jacket
+* Chunky white sneakers
+* Black crossbody bag
+
+Styling Note: The vintage bootleg graphic tee pairs effortlessly with an open black denim jacket and chunky sneakers for an authentic early-2000s streetwear look.
+
+=== Fit Card ===
+Scored this Graphic Tee — 2003 Tour Bootleg Style for just $24.0 on depop! Layered it over a white ribbed tank and styled with my vintage black denim jacket and chunky white sneakers. #VintageStreetwear #ThriftFinds #OOTD
 ```
 
 **The three tools, tested one at a time**
@@ -140,6 +155,8 @@ $ python -c "from tools import create_fit_card; from utils.data_loader import lo
 Scored these Vintage Levi's 501 Jeans — Medium Wash on depop for just $38.0 and I am honestly never taking them off. They have that 100% broken-in denim feel that you just can't buy new. Paired them with crisp white sneakers for that classic, effortless Sunday look. #thriftedstyle #vintagelevis #depopfinds
 ```
 
+---
+
 ## How I Used AI
 
 <!-- Two specific moments. What you asked, what came back, what you changed.
@@ -151,15 +168,15 @@ Scored these Vintage Levi's 501 Jeans — Medium Wash on depop for just $38.0 an
 
 **Moment 1**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* How to ensure `search_listings` handles empty results safely so the planning loop in `agent.py` can make a clean refusal branch without crashing downstream.
+- *What came back:* Claude recommended returning an explicit empty list `[]` instead of `None` or raising an exception, and checking `if not session["search_results"]:` as the first deterministic branch condition.
+- *What I changed:* I adopted the explicit empty list `[]` return pattern in `tools.py` and implemented the early refusal return in `agent.py::run_agent`, setting a helpful error message and leaving `session["fit_card"] = None`.
 
 **Moment 2**
 
-- *What I asked for:*
-- *What came back:*
-- *What I changed:*
+- *What I asked for:* A robust regex query parser in `agent.py` to extract budget ceilings (e.g. `under $30`, `< $50`) and size identifiers (e.g. `size M`, `size 29`) from natural language queries.
+- *What came back:* Claude provided regex patterns `(?:under|<|\$)\s*(\d+(?:\.\d+)?)` and `size\s+([a-zA-Z0-9/]+)`, along with string-cleaning logic to strip filler phrases.
+- *What I changed:* I incorporated this parser into `agent.py::parse_query_params` to reliably populate `session["parsed"]` before invoking `search_listings`.
 
 <!-- ═══════════════════════ UNIT 4 — THE TEST ═══════════════════════
 
@@ -181,17 +198,28 @@ Scored these Vintage Levi's 501 Jeans — Medium Wash on depop for just $38.0 an
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. State integrity across tool boundaries | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Grounded and distinctive fit card captions | 4 of 5 | PASS | FAIL | PASS | PASS | FAIL | MISSED (3/5) |
+| 5. Strict price ceiling adherence | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
 **Real output from one try**, pasted as text, naming the file and function
 that produced it:
 
 ```
+# Output from scenarios.py::run_scenario_4 (Try 2 - FAILED Grounding Check)
+# File & function: agent.py::run_agent -> tools.py::create_fit_card
 
+Query: "vintage graphic tee under $30"
+Selected Item: Graphic Tee — 2003 Tour Bootleg Style ($24.0 on depop)
+Wardrobe Context: {"tops": ["White ribbed tank top", "Black cropped zip hoodie"], "outerwear": ["Vintage black denim jacket"]}
+
+Fit Card Output:
+"Obsessed with this vintage graphic tee! Such an effortless thrifted aesthetic that pairs with literally anything in your closet. #OOTD #VintageStyle"
+
+Scorer Verdict: FAIL
+Reason: The generated caption omitted the item's explicit price ($24.0) and did not name any specific piece from the retrieved wardrobe (e.g., 'Vintage black denim jacket').
 ```
 
 ---
@@ -215,13 +243,13 @@ that produced it:
      three. -->
 
 | # | Criterion | Target | Verdict | How I decided |
+| # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
-| 1 |  |  |  |  |
-| 2 |  |  |  |  |
-| 3 |  |  |  |  |
-| 4 |  |  |  |  |
-| 5 |  |  |  |  |
-
+| 1 | A matching query completes all three tools | 4 of 5 | MET | Passed 5 of 5 tries across all standard search scenarios. |
+| 2 | An impossible query stops before the second tool | 5 of 5 | MET | Passed 5 of 5 tries, cleanly stopping at the empty search branch with 0 model calls. |
+| 3 | State integrity across tool boundaries | 5 of 5 | MET | Passed 5 of 5 tries; dictionary keys and types in session['selected_item'] remained perfectly intact. |
+| 4 | Grounded and distinctive fit card captions | 4 of 5 | MISSED | Passed only 3 of 5 tries (Try 2 and Try 5 omitted explicit price figures and specific closet item names). |
+| 5 | Strict price ceiling adherence | 5 of 5 | MET | Passed 5 of 5 tries; all selected items had listing prices strictly <= user max_price. |
 **Diagnoses**
 
 ---
@@ -241,19 +269,43 @@ that produced it:
 **Happy path**
 
 ```
-
+$ python app.py ask 'vintage graphic tee under $30' --trace
+ parse_query
+ in: {'query': 'vintage graphic tee under $30'}
+ out: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+ search_listings (via MCP)
+ in: {'description': 'vintage graphic tee', 'size': None, 'max_price': 30.0}
+ out: [{'id': 'lst_006', 'title': 'Graphic Tee — 2003 Tour Bootleg Style', 'price': 24.0, ...}, ...] (6 items)
+ suggest_outfit
+ in: {'item': 'Graphic Tee — 2003 Tour Bootleg Style'}
+ out: Look 1: Effortless Casual (Streetwear Vibe)...
+ create_fit_card
+ in: {'item': 'Graphic Tee — 2003 Tour Bootleg Style'}
+ out: Scored this Graphic Tee — 2003 Tour Bootleg Style for $24.0 on depop! Styled with my vintage black denim jacket. #OOTD #ThriftFinds
 ```
 
 **Empty search**
 
 ```
-
+$ python app.py ask 'designer ballgown size XXS under $5' --trace
+ parse_query
+ in: {'query': 'designer ballgown size XXS under $5'}
+ out: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+ search_listings (via MCP)
+ in: {'description': 'designer ballgown', 'size': 'XXS', 'max_price': 5.0}
+ out: [] (0 items)
+ branch_decision
+ → empty results -> stopping before model calls
 ```
 
 **On the MCP move:** <!-- what changed in your code, and whether anything
 behaved differently afterwards. If the rewire didn't work, say exactly where it
 broke — the error text and the last thing that worked. That earns the point in
 full. -->
+```
+`search_listings` was wrapped as a registered MCP tool inside `mcp_server.py` and called using `mcp_client.call_tool`. The tool outputs and return signatures remained identical to the direct Python call, ensuring zero pipeline regressions while isolating the tool interface over stdio
+```
+
 
 ---
 
