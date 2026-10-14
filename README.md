@@ -243,7 +243,6 @@ Reason: The generated caption omitted the item's explicit price ($24.0) and did 
      three. -->
 
 | # | Criterion | Target | Verdict | How I decided |
-| # | Criterion | Target | Verdict | How I decided |
 |---|---|---|---|---|
 | 1 | A matching query completes all three tools | 4 of 5 | MET | Passed 5 of 5 tries across all standard search scenarios. |
 | 2 | An impossible query stops before the second tool | 5 of 5 | MET | Passed 5 of 5 tries, cleanly stopping at the empty search branch with 0 model calls. |
@@ -251,7 +250,10 @@ Reason: The generated caption omitted the item's explicit price ($24.0) and did 
 | 4 | Grounded and distinctive fit card captions | 4 of 5 | MISSED | Passed only 3 of 5 tries (Try 2 and Try 5 omitted explicit price figures and specific closet item names). |
 | 5 | Strict price ceiling adherence | 5 of 5 | MET | Passed 5 of 5 tries; all selected items had listing prices strictly <= user max_price. |
 **Diagnoses**
+### Criterion 4 — Grounded and distinctive fit card captions (`MISSED`)
 
+- **The Place:** Model's output / Prompt in `tools.py::create_fit_card`.
+- **The Mechanism:** The generation prompt in `create_fit_card` asked the model to write a social media caption highlighting the outfit, but lacked strict structural constraints requiring the explicit item price and specific wardrobe item names. In 2 of 5 tries (Try 2 and Try 5), the model generated generic high-level aesthetic praise ("pairs with literally anything in your closet") instead of citing the exact price ($24.0) and naming the paired pieces (e.g., "Vintage black denim jacket"). The tool and session state functioned correctly; the prompt allowed too much creative freedom.
 ---
 
 ## Loop Trace
@@ -317,23 +319,24 @@ full. -->
      `python run_eval.py --label after` -->
 
 **What I changed:**
-
+In `tools.py::create_fit_card`, I tightened the generation prompt by adding explicit grounding rules: *"You MUST explicitly state the exact price (${price}) and platform in the caption, and you MUST name at least one of the specific paired wardrobe pieces."*
 **Which failure it was meant to fix:**
-
+Criterion 4 (`Grounded and distinctive fit card captions`), which missed during the baseline run due to unconstrained caption generation that omitted price figures and specific closet items.
 ### Run Log — After
 
 | Criterion | Target | Try 1 | Try 2 | Try 3 | Try 4 | Try 5 | Verdict |
 |---|---|---|---|---|---|---|---|
-| 1.  |  |  |  |  |  |  |  |
-| 2.  |  |  |  |  |  |  |  |
-| 3.  |  |  |  |  |  |  |  |
-| 4.  |  |  |  |  |  |  |  |
-| 5.  |  |  |  |  |  |  |  |
+| 1. A matching query completes all three tools | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 2. An impossible query stops before the second tool | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 3. State integrity across tool boundaries | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 4. Grounded and distinctive fit card captions | 4 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
+| 5. Strict price ceiling adherence | 5 of 5 | PASS | PASS | PASS | PASS | PASS | MET (5/5) |
 
 **Did it help, and how do I know:**
 
 <!-- If it made things worse, say that. Honestly reported, that earns full
      credit and is more interesting than one that worked. -->
+Yes: Criterion 4 improved from 3/5 (`MISSED`) to 5/5 (`MET`), with all five tries now explicitly citing the exact dollar price and at least one retrieved wardrobe item, while Criteria 1, 2, 3, and 5 maintained 100% pass rates (5/5).
 
 ---
 
@@ -343,7 +346,8 @@ full. -->
      you did. "I ran out of time" is fine if it's true. Pretending nothing is
      left is not. -->
 
-<!-- ═════════════════════════════════════════════════════════════════════
+<!--
+═════════════════════════════════════════════════════════════════════
 
      SUBMISSION CHECKLIST — unit 3
 
@@ -361,6 +365,8 @@ full. -->
      Do not delete and recreate this repository. Your commit history is what
      shows your criteria existed before your results did.
      ═════════════════════════════════════════════════════════════════════ -->
+- **What remains unaddressed:** `agent.py` currently selects the first matching item (`session["search_results"][0]`) rather than using an LLM or multi-factor ranking tool to choose the best item among all matches. Furthermore, if a query yields 0 results, the agent stops immediately rather than attempting an automatic query relaxation retry (e.g. searching again without the size filter).
+- **Why I stopped here:** Unit 2 mandates making and measuring exactly **one change** at a time. The prompt grounding fix resolved our diagnosed failure (Criterion 4), and introducing multi-item ranking or retry loops in the same evaluation pass would have mixed variables and invalidated the comparison.
 
 ---
 
