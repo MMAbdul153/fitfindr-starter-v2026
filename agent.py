@@ -90,42 +90,34 @@ def new_session(query: str, wardrobe: dict) -> dict:
 def run_agent(query: str, wardrobe: dict) -> dict:
     """
     Run the loop once and return the finished session.
-
-    Args:
-        query:    what the user asked for, in plain language
-                  (e.g. "vintage graphic tee under $30, size M").
-        wardrobe: a wardrobe dict — get_example_wardrobe() or
-                  get_empty_wardrobe() from utils/data_loader.py.
-
-    Returns:
-        The session dict. Check session["error"] first — if it isn't None,
-        the run ended early and the later fields will still be None.
     """
-    # 1. Start session
+    if hasattr(trace, "start_trace"):
+        trace.start_trace()
+
     session = new_session(query, wardrobe)
 
-    # 2. Check iteration bounds
     iteration_count = 1
     if hasattr(trace, "check_iterations"):
         trace.check_iterations(iteration_count)
 
-    # 3. Step 1: Parse query into description, size, and max_price
+    # Step 1: Parse query
     desc, size, max_price = parse_query_params(query)
     session["parsed"] = {
         "description": desc,
         "size": size,
         "max_price": max_price,
     }
+    if hasattr(trace, "step"):
+        trace.step("parse_query", inputs={"query": query}, returned=session["parsed"])
 
-    # 4. Step 2: Call Tool 1 via MCP (search_listings)
-    results = call_tool("search_listings", {
-        "description": desc,
-        "size": size,
-        "max_price": max_price,
-    })
+    # Step 2: Call search_listings via MCP
+    search_inputs = {"description": desc, "size": size, "max_price": max_price}
+    results = call_tool("search_listings", search_inputs)
     session["search_results"] = results
+    if hasattr(trace, "step"):
+        trace.step("search_listings (via MCP)", inputs=search_inputs, returned=results)
 
-    # ⚠️ THIS IS THE BRANCH: If nothing came back, halt execution immediately
+    # Branch Rule
     if not results:
         details = []
         if desc:
@@ -140,31 +132,41 @@ def run_agent(query: str, wardrobe: dict) -> dict:
             f"No matching listings found matching {criteria_str}. "
             "Try increasing your budget, removing size filters, or broadening your keywords."
         )
+        if hasattr(trace, "step"):
+            trace.step("branch_decision", note="empty results -> stopping before model calls")
         return session
 
-    # 5. Step 3: Happy path — choose the first result
+    # Step 3: Happy path — select first item
     session["selected_item"] = results[0]
 
-    # 6. Step 4: Call Tool 2 (suggest_outfit)
+    # Step 4: Call Tool 2 (suggest_outfit)
     try:
         outfit = suggest_outfit(
             new_item=session["selected_item"],
             wardrobe=session["wardrobe"]
         )
         session["outfit_suggestion"] = outfit
+        if hasattr(trace, "step"):
+            trace.step("suggest_outfit", inputs={"item": session["selected_item"].get("title")}, returned=outfit)
     except ModelUnavailable as e:
         session["error"] = f"Model service currently unavailable: {e}"
+        if hasattr(trace, "step"):
+            trace.step("suggest_outfit", note=f"failed: {e}")
         return session
 
-    # 7. Step 5: Call Tool 3 (create_fit_card)
+    # Step 5: Call Tool 3 (create_fit_card)
     try:
         fit_card = create_fit_card(
             outfit=session["outfit_suggestion"],
             new_item=session["selected_item"]
         )
         session["fit_card"] = fit_card
+        if hasattr(trace, "step"):
+            trace.step("create_fit_card", inputs={"item": session["selected_item"].get("title")}, returned=fit_card)
     except ModelUnavailable as e:
         session["error"] = f"Model service currently unavailable: {e}"
+        if hasattr(trace, "step"):
+            trace.step("create_fit_card", note=f"failed: {e}")
         return session
 
     return session
