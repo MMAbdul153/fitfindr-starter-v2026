@@ -17,8 +17,9 @@ import re
 from typing import Optional, Tuple
 import config
 import trace
-from tools import search_listings, suggest_outfit, create_fit_card
+from tools import suggest_outfit, create_fit_card
 from generate import ModelUnavailable
+from mcp_client import call_tool
 
 
 # ── query parser ─────────────────────────────────────────────────────────────
@@ -116,8 +117,12 @@ def run_agent(query: str, wardrobe: dict) -> dict:
         "max_price": max_price,
     }
 
-    # 4. Step 2: Call Tool 1 (search_listings)
-    results = search_listings(description=desc, size=size, max_price=max_price)
+    # 4. Step 2: Call Tool 1 via MCP (search_listings)
+    results = call_tool("search_listings", {
+        "description": desc,
+        "size": size,
+        "max_price": max_price,
+    })
     session["search_results"] = results
 
     # ⚠️ THIS IS THE BRANCH: If nothing came back, halt execution immediately
